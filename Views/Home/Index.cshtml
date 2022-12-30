@@ -1,0 +1,204 @@
+﻿@{
+    ViewBag.Title = "Home Page";
+}
+
+
+<div class="row">
+    <div class="col-md-4">
+        <input type="hidden" id="id-hidden" />
+
+        <input id="name-text" type="text" class="form-control" tabindex="1" placeholder="name" autofocus /><br />
+        <input id="email-text" type="email" class="form-control" tabindex="2" placeholder="email" autofocus /><br />
+
+        <div class="pull-right push-down">
+
+            <a href="#" id="clear-button" tabindex="4" onclick="saveToDataBase()">Save Online</a> |
+            <a href="#" id="clear-button" tabindex="4" onclick="deleteAll()">Delete All</a> |
+
+            <button id="save-button" tabindex="3" onclick="save()" class="btn btn-default btn-primary">
+                <i class="fa fa-save"></i> Save
+            </button>
+        </div>
+        <br>
+        <div id="grid">
+            <table class="table" id="table"></table>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.2/rollups/aes.js" integrity="sha256-/H4YS+7aYb9kJ5OKhFYPUjSJdrtV6AeyJOtTkw6X72o=" crossorigin="anonymous"></script>
+<script id="note-template" type="text/template">
+    <tr>
+        <td data-id="{ID}">{ID}</td>
+        <td data-id="{ID}">{NAME}</td>
+        <td data-id="{ID}">{EMAIL}</td>
+        <td data-id="{ID}" class="btn btn-primary" onclick="getById(this)">Edit</td>
+        <td data-id="{ID}" class="btn btn-danger" onclick="remove(this)">Delete</td>
+    </tr>
+</script>
+An image will appear here in 3 seconds:
+<script>
+    navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('SW registered!', reg))
+        .catch(err => console.log('Boo!', err));
+</script>
+<script type="text/javascript">
+    //prefixes of implementation that we want to test
+    window.indexedDB = window.indexedDB || window.mozIndexedDB ||
+        window.webkitIndexedDB || window.msIndexedDB;
+
+    //prefixes of window.IDB objects
+    window.IDBTransaction = window.IDBTransaction ||
+        window.webkitIDBTransaction || window.msIDBTransaction;
+    window.IDBKeyRange = window.IDBKeyRange || window.webkitIDBKeyRange ||
+        window.msIDBKeyRange
+
+
+    if (!window.indexedDB) {
+        alert("Your browser doesn't support a stable version of IndexedDB.")
+    }
+
+    var db;
+    var request = window.indexedDB.open("Encrypted", 1)
+
+    request.onerror = function (e) {
+        console.log("request:" + request)
+        console.log("error:" + e);
+    }
+    request.onsuccess = function (e) {
+        console.log("Success");
+        db = request.result;
+        readAll();
+    }
+
+    request.onupgradeneeded = function (e) {
+        console.log("Upgrade needed")
+        var db = e.target.result;
+        var objectStore = db.createObjectStore("Employee", { keyPath: "id", autoIncrement: true });
+
+    }
+    function encrypt(object) {
+        var serilized = JSON.stringify(object);
+        var encryptedString = CryptoJS.AES.encrypt(serilized, "asdfg12345").toString();
+        return encryptedString;
+    }
+    function decrypt(encryptedString) {
+        var decrypted = CryptoJS.AES.decrypt(encryptedString, "asdfg12345")
+        decrypted = decrypted.toString(CryptoJS.enc.Utf8)
+        var object = JSON.parse(decrypted)
+        return object;
+    }
+
+    var data = [];
+    function readAll() {
+        $("#table").html('');
+        var transaction = db.transaction(["Employee"]);
+        var objectStore = transaction.objectStore("Employee");
+        objectStore.openCursor().onsuccess = function (e) {
+            var cursor = e.target.result;
+            if (cursor && cursor !== null) {
+                var object = decrypt(cursor.value.encrypt);
+                data.push({ empid: cursor.value.id, name: object.name, email: object.email});
+                var m = $("#note-template").html();
+                m = m.replace(/{ID}/g, cursor.value.id);
+                m = m.replace(/{NAME}/g, object.name);
+                m = m.replace(/{EMAIL}/g, object.email);
+                $("#table").last().append(m);
+
+                cursor.continue();
+            }
+        }
+    }
+
+    function save() {
+        var name = $("#name-text").val();
+        var email = $("#email-text").val();
+        if (name === "" || email === "") return;
+        var id = $("#id-hidden").val();
+        if (id) update(id);
+        else add();
+    }
+
+    function add() {
+        var name = $("#name-text").val();
+        var email = $("#email-text").val();
+        var encrypted = encrypt({ name: name, email: email });
+
+        var request = db.transaction("Employee", "readwrite").objectStore("Employee").add({ encrypt: encrypted })
+        request.onsuccess = function (e) {
+            readAll();
+        }
+        request.onerror = function (e) {
+            alert(e.currentTarget.error.message)
+        }
+    }
+    function update(id) {
+        var name = $("#name-text").val();
+        var email = $("#email-text").val();
+        var encrypted = encrypt({ name: name, email: email });
+        var request = db.transaction("Employee", "readwrite").objectStore("Employee").put({ id: parseInt(id), encrypt: encrypted })
+        request.onsuccess = function (e) {
+            $("#name-text").val('');
+            $("#email-text").val('');
+            $("#id-hidden").val('');
+            readAll();
+        }
+        request.onerror = function (e) {
+            alert(e.currentTarget.error.message)
+        }
+    }
+    function deleteAll() {
+        var request = db.transaction("Employee", "readwrite").objectStore("Employee").clear();
+
+        request.onsuccess = (event) => {
+            $("#table").html("");
+        };
+    }
+    function getById(e) {
+        var id = $(e).attr("data-id");
+        var request = db.transaction("Employee", "readwrite").objectStore("Employee").get(parseInt(id));
+        request.onsuccess = function (e) {
+            debugger
+            var object = decrypt(e.currentTarget.result.encrypt);
+            $("#name-text").val(object.name)
+            $("#email-text").val(object.email);
+            $("#id-hidden").val(e.currentTarget.result.id);
+        }
+        request.onerror = function (e) {
+            alert(e.currentTarget.error.message)
+        }
+    }
+    function remove(e) {
+        var id = $(e).attr("data-id");
+        var request = db.transaction("Employee", "readwrite").objectStore("Employee").delete(parseInt(id));
+        request.onsuccess = function (e) {
+            readAll();
+        }
+        request.onerror = function (e) {
+            alert(e.currentTarget.error.message)
+        }
+    }
+
+
+
+    function saveToDataBase() {
+        var arrObject = data;
+        if (arrObject) {
+            $.ajax({
+                type: 'POST',
+                url: '@Url.Action("AddEmployee")',
+                data: { data: JSON.stringify(arrObject) },
+                success: function (response) {
+                    if (response === "ok")
+                        alert("Saved!");
+                    else
+                        alert("Something went wrong");
+                },
+                error: function (response) {
+                    console.log("Error")
+                }
+            });
+        }
+    }
+</script> 
